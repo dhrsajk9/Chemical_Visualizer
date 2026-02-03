@@ -1,0 +1,38 @@
+# --- System ---
+.DS_Store
+Thumbs.db
+
+# --- Python & Django (Backend) ---
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.env
+db.sqlite3
+*.log
+
+# --- Uploads & Media (Backend) ---
+# Ignore the actual uploaded files, but keep the folder structure
+backend/media/uploads/*
+!backend/media/uploads/.gitkeep
+backend/media/reports/*
+
+# --- React (Web Frontend) ---
+web_frontend/node_modules/
+web_frontend/build/
+web_frontend/.pnp
+web_frontend/.pnp.js
+web_frontend/coverage/
+web_frontend/.env.local
+web_frontend/.env.development.local
+web_frontend/.env.test.local
+web_frontend/.env.production.local
+web_frontend/npm-debug.log*
+web_frontend/yarn-debug.log*
+web_frontend/yarn-error.log*
+
+# --- PyQt5 (Desktop Frontend) ---
+desktop_frontend/__pycache__/
+desktop_frontend/venv/
+desktop_frontend/.vscode/
