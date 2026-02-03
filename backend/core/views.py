@@ -9,6 +9,7 @@ from rest_framework.authtoken.models import Token
 from django.http import HttpResponse
 from django.conf import settings
 from reportlab.pdfgen import canvas
+from sklearn.ensemble import IsolationForest 
 
 from .models import EquipmentData
 from .serializers import EquipmentDataSerializer
@@ -51,7 +52,7 @@ class FileUploadView(APIView):
             return Response(file_serializer.data, status=201)
         return Response(file_serializer.errors, status=400)
 
-# 3. Analytics View
+# 3. Analytics View 
 class AnalyticsView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -60,31 +61,41 @@ class AnalyticsView(APIView):
             data_obj = EquipmentData.objects.get(pk=pk)
             file_path = data_obj.file.path
             
-            # Pandas Processing 
+            # 1. Load Data
             df = pd.read_csv(file_path)
-            
-            # Clean column names (strip spaces)
             df.columns = df.columns.str.strip()
             
-            # Summary Statistics
+            # 2. AI Implementation: Anomaly Detection
+            # We select numeric features for the model
+            features = ['Flowrate', 'Pressure', 'Temperature']
+            
+            # Ensure columns exist and fill NaNs to prevent crashes
+            if set(features).issubset(df.columns):
+                # Initialize Isolation Forest (Contamination = 5% of data is likely noise)
+                model = IsolationForest(contamination=0.05, random_state=42)
+                
+                # Fit and Predict (-1 is anomaly, 1 is normal)
+                df['anomaly_score'] = model.fit_predict(df[features])
+                
+                # Convert to boolean for easier frontend handling
+                df['is_anomaly'] = df['anomaly_score'].apply(lambda x: True if x == -1 else False)
+            else:
+                df['is_anomaly'] = False # Fallback if columns missing
+
+            # 3. Standard Stats (Existing code)
             total_count = len(df)
-            
-            # Handle numeric conversions safely
             numeric_cols = ['Flowrate', 'Pressure', 'Temperature']
-            averages = {}
-            for col in numeric_cols:
-                if col in df.columns:
-                    averages[col] = df[col].mean()
-            
-            # Equipment Type Distribution
+            averages = {col: df[col].mean() for col in numeric_cols if col in df.columns}
             type_distribution = df['Type'].value_counts().to_dict() if 'Type' in df.columns else {}
 
+            # 4. Return Full Data with Anomaly Flags
+            # We return the whole dataset (or first 100 rows) so we can plot it
             return Response({
                 "filename": data_obj.filename(),
                 "total_count": total_count,
                 "averages": averages,
                 "type_distribution": type_distribution,
-                "preview": df.head(10).to_dict(orient='records') # For table display
+                "dataset": df.head(100).to_dict(orient='records') # Sent 100 rows for scatter plot
             })
         except Exception as e:
             return Response({"error": str(e)}, status=400)

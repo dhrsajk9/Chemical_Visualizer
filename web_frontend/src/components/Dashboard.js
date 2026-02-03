@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Bar } from 'react-chartjs-2';
+import { Scatter } from 'react-chartjs-2'; // Changed to Scatter
 import { Chart as ChartJS } from 'chart.js/auto';
 
 const Dashboard = ({ token, onLogout }) => {
@@ -10,7 +10,6 @@ const Dashboard = ({ token, onLogout }) => {
 
   const authHeader = { headers: { Authorization: `Token ${token}` } };
 
-  // Fetch history on load
   useEffect(() => {
     fetchHistory();
   }, []);
@@ -41,29 +40,19 @@ const Dashboard = ({ token, onLogout }) => {
     } catch (err) { console.error(err); }
   };
 
-  // --- FIXED DOWNLOAD FUNCTION ---
   const downloadPDF = async (id, filename) => {
     try {
       const response = await axios.get(`http://127.0.0.1:8000/api/pdf/${id}/`, {
         headers: { Authorization: `Token ${token}` },
-        responseType: 'blob', // IMPORTANT: Expect binary data
+        responseType: 'blob',
       });
-
-      // Create a Blob from the PDF Stream
-      const file = new Blob(
-        [response.data], 
-        {type: 'application/pdf'}
-      );
-
-      // Build a link to trigger the download
+      const file = new Blob([response.data], {type: 'application/pdf'});
       const fileURL = URL.createObjectURL(file);
       const link = document.createElement('a');
       link.href = fileURL;
       link.setAttribute('download', `report_${filename}.pdf`);
       document.body.appendChild(link);
       link.click();
-      
-      // Cleanup
       link.remove();
     } catch (error) {
       console.error(error);
@@ -71,14 +60,25 @@ const Dashboard = ({ token, onLogout }) => {
     }
   };
 
-  // Prepare Chart Data
-  const chartData = analytics ? {
-    labels: Object.keys(analytics.type_distribution),
-    datasets: [{
-      label: 'Equipment Count by Type',
-      data: Object.values(analytics.type_distribution),
-      backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0']
-    }]
+  // --- AI CHART DATA ---
+  const scatterData = analytics ? {
+    datasets: [
+      {
+        label: 'Normal Operation',
+        data: analytics.dataset
+          .filter(row => !row.is_anomaly)
+          .map(row => ({ x: row.Temperature, y: row.Pressure })),
+        backgroundColor: 'rgba(54, 162, 235, 1)', // Blue
+      },
+      {
+        label: 'AI Detected Anomalies',
+        data: analytics.dataset
+          .filter(row => row.is_anomaly)
+          .map(row => ({ x: row.Temperature, y: row.Pressure })),
+        backgroundColor: 'rgba(255, 99, 132, 1)', // Red
+        pointRadius: 6,
+      }
+    ]
   } : null;
 
   return (
@@ -88,7 +88,6 @@ const Dashboard = ({ token, onLogout }) => {
         <button className="btn btn-outline-danger" onClick={onLogout}>Logout</button>
       </div>
 
-      {/* Upload Section */}
       <div className="card mb-4 p-3">
         <h4>Upload New Dataset</h4>
         <form onSubmit={handleUpload} className="d-flex gap-2">
@@ -98,7 +97,6 @@ const Dashboard = ({ token, onLogout }) => {
       </div>
 
       <div className="row">
-        {/* History Sidebar */}
         <div className="col-md-4">
           <div className="list-group">
             <h5>Recent Uploads (Last 5)</h5>
@@ -112,39 +110,71 @@ const Dashboard = ({ token, onLogout }) => {
           </div>
         </div>
 
-        {/* Analytics View */}
         <div className="col-md-8">
           {analytics ? (
             <div className="card p-3">
-              <h3>Analysis: {analytics.filename}</h3>
-              
-              {/* FIXED BUTTON CALL */}
-              <button className="btn btn-primary mb-3 w-25" 
-                 onClick={() => downloadPDF(history.find(h => h.filename === analytics.filename)?.id, analytics.filename)}>
-                  Download PDF Report
-              </button>
-
-              <div className="row mb-3">
-                <div className="col"><strong>Total Count:</strong> {analytics.total_count}</div>
-                <div className="col"><strong>Avg Temp:</strong> {analytics.averages.Temperature?.toFixed(2)}</div>
-                <div className="col"><strong>Avg Pressure:</strong> {analytics.averages.Pressure?.toFixed(2)}</div>
+              <div className="d-flex justify-content-between">
+                <h3>Analysis: {analytics.filename}</h3>
+                <button className="btn btn-sm btn-dark" 
+                  onClick={() => downloadPDF(history.find(h => h.filename === analytics.filename)?.id, analytics.filename)}>
+                  Download Report
+                </button>
               </div>
 
-              <div style={{ height: '300px' }}>
-                <Bar data={chartData} options={{ maintainAspectRatio: false }} />
+              {/* AI VISUALIZATION */}
+              <div className="mt-3 p-2 border rounded bg-light">
+                <h5 className="text-center">AI Anomaly Detection (Pressure vs Temp)</h5>
+                <div style={{ height: '350px' }}>
+                  <Scatter 
+                    data={scatterData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      scales: {
+                        x: { title: { display: true, text: 'Temperature (C)' } },
+                        y: { title: { display: true, text: 'Pressure (Pa)' } }
+                      }
+                    }} 
+                  />
+                </div>
+                <small className="text-muted d-block text-center mt-2">
+                  *Red points indicate equipment behaving abnormally (Isolation Forest Model)
+                </small>
               </div>
 
-              <h5 className="mt-4">Data Preview</h5>
-              <table className="table table-sm table-striped">
-                <thead>
-                  <tr>{Object.keys(analytics.preview[0] || {}).map(k => <th key={k}>{k}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {analytics.preview.map((row, i) => (
-                    <tr key={i}>{Object.values(row).map((val, j) => <td key={j}>{val}</td>)}</tr>
-                  ))}
-                </tbody>
-              </table>
+              {/* HIGHLIGHTED DATA TABLE */}
+              <h5 className="mt-4">Detailed Data</h5>
+              <div style={{ maxHeight: '300px', overflow: 'auto' }}>
+                <table className="table table-sm table-bordered">
+                  <thead className="table-dark" style={{ position: 'sticky', top: 0 }}>
+                    <tr>
+                      <th>Equipment</th>
+                      <th>Type</th>
+                      <th>Flowrate</th>
+                      <th>Pressure</th>
+                      <th>Temp</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analytics.dataset.map((row, i) => (
+                      <tr key={i} className={row.is_anomaly ? "table-danger" : ""}>
+                        <td>{row['Equipment Name']}</td>
+                        <td>{row.Type}</td>
+                        <td>{row.Flowrate}</td>
+                        <td>{row.Pressure}</td>
+                        <td>{row.Temperature}</td>
+                        <td>
+                          {row.is_anomaly ? 
+                            <span className="badge bg-danger">ANOMALY</span> : 
+                            <span className="badge bg-success">OK</span>
+                          }
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
             <div className="alert alert-info">Select a file from the history to view analytics.</div>

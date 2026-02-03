@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 
 # Global Config
 API_URL = "http://127.0.0.1:8000/api"
@@ -55,8 +56,8 @@ class DashboardWindow(QMainWindow):
         super().__init__()
         self.token = token
         self.headers = {'Authorization': f'Token {self.token}'}
-        self.setWindowTitle("Chemical Equipment Dashboard (Desktop)")
-        self.resize(1000, 700)
+        self.setWindowTitle("Chemical Equipment Dashboard (Desktop + AI)")
+        self.resize(1100, 750)
         
         # Main Layout
         central_widget = QWidget()
@@ -89,9 +90,10 @@ class DashboardWindow(QMainWindow):
         content_layout = QVBoxLayout()
         
         self.stats_label = QLabel("Select a file to view statistics")
+        self.stats_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         content_layout.addWidget(self.stats_label)
         
-        # Matplotlib Chart 
+        # Matplotlib Chart
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         content_layout.addWidget(self.canvas)
@@ -144,33 +146,61 @@ class DashboardWindow(QMainWindow):
                 data = resp.json()
                 
                 # Update Text Stats
-                stats_text = (f"File: {data['filename']} | Total: {data['total_count']} | "
-                              f"Avg Temp: {data['averages'].get('Temperature', 0):.2f}")
-                self.stats_label.setText(stats_text)
+                self.stats_label.setText(f"File: {data['filename']} | AI Model: Isolation Forest Active")
                 
-                # Update Chart (Matplotlib)
+                # --- NEW AI CHART (Matplotlib) ---
                 self.figure.clear()
                 ax = self.figure.add_subplot(111)
-                types = list(data['type_distribution'].keys())
-                counts = list(data['type_distribution'].values())
-                ax.bar(types, counts, color='skyblue')
-                ax.set_title("Equipment Type Distribution")
-                self.canvas.draw()
                 
-                # Update Table
-                preview = data['preview']
-                if preview:
-                    headers = list(preview[0].keys())
+                # Extract data for plotting
+                temps = [row['Temperature'] for row in data['dataset']]
+                pressures = [row['Pressure'] for row in data['dataset']]
+                # Red for Anomaly, Blue for Normal
+                colors = ['red' if row['is_anomaly'] else 'blue' for row in data['dataset']]
+                
+                # Plot
+                ax.scatter(temps, pressures, c=colors, alpha=0.6, edgecolors='w', s=50)
+                ax.set_title("Anomaly Detection: Pressure vs Temperature")
+                ax.set_xlabel("Temperature")
+                ax.set_ylabel("Pressure")
+                
+                # Create a custom legend
+                legend_elements = [
+                    Line2D([0], [0], marker='o', color='w', label='Normal', markerfacecolor='blue', markersize=8),
+                    Line2D([0], [0], marker='o', color='w', label='Anomaly', markerfacecolor='red', markersize=8)
+                ]
+                ax.legend(handles=legend_elements)
+                
+                self.canvas.draw()
+                # ---------------------------------
+
+                # Update Table with Color Coding
+                dataset = data['dataset']
+                if dataset:
+                    headers = ['Equipment Name', 'Type', 'Pressure', 'Temperature', 'Status']
                     self.table.setColumnCount(len(headers))
-                    self.table.setRowCount(len(preview))
+                    self.table.setRowCount(len(dataset))
                     self.table.setHorizontalHeaderLabels(headers)
-                    for i, row in enumerate(preview):
-                        for j, (key, val) in enumerate(row.items()):
-                            self.table.setItem(i, j, QTableWidgetItem(str(val)))
+                    
+                    for i, row in enumerate(dataset):
+                        # Name
+                        self.table.setItem(i, 0, QTableWidgetItem(str(row.get('Equipment Name', ''))))
+                        # Type
+                        self.table.setItem(i, 1, QTableWidgetItem(str(row.get('Type', ''))))
+                        # Pressure
+                        self.table.setItem(i, 2, QTableWidgetItem(str(row.get('Pressure', 0))))
+                        # Temp
+                        self.table.setItem(i, 3, QTableWidgetItem(str(row.get('Temperature', 0))))
+                        # Status
+                        status_item = QTableWidgetItem("ANOMALY" if row['is_anomaly'] else "OK")
+                        if row['is_anomaly']:
+                            status_item.setBackground(Qt.red)
+                            status_item.setForeground(Qt.white)
+                        self.table.setItem(i, 4, status_item)
                 
                 self.pdf_btn.setEnabled(True)
         except Exception as e:
-            print(e)
+            print(f"Error: {e}")
 
     def download_pdf(self):
         if self.current_file_id:
